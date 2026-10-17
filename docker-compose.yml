@@ -1,0 +1,33 @@
+services:
+  midnight-proof-server:
+    image: midnightnetwork/proof-server:latest
+    container_name: obsidian-midnight-proof-server
+    command: ["midnight-proof-server", "--network", "testnet"]
+    ports:
+      - "6300:6300"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6300' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  obsidian-enclave-daemon:
+    build:
+      context: ./enclave-daemon
+      dockerfile: Dockerfile
+    container_name: obsidian-enclave-daemon
+    environment:
+      - PORT=8080
+      - MIDNIGHT_PROOF_SERVER_URL=http://midnight-proof-server:6300
+      - RUST_BACKTRACE=1
+    ports:
+      - "8080:8080"
+    depends_on:
+      - midnight-proof-server
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/8080' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped

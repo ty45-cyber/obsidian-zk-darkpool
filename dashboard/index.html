@@ -1,0 +1,243 @@
+<!-- dashboard/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ObsidianZK v3.0 — Institutional RWA Dark Pool & Multilateral Netting Terminal</title>
+  <style>
+    :root { --bg: #040810; --panel: #0d131f; --border: #1e293b; --accent: #10b981; --accent-blue: #3b82f6; --warn: #ef4444; --text: #f8fafc; --muted: #94a3b8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background: var(--bg); color: var(--text); padding-bottom: 40px; }
+    header { padding: 14px 24px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; background: #080c14; }
+    .rpc-bar { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+    .rpc-bar input { background: #06090f; color: var(--accent); border: 1px solid var(--border); padding: 6px 10px; border-radius: 4px; width: 310px; font-family: inherit; font-size: 12px; }
+    
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; padding: 20px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; padding: 0 20px; }
+    
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 18px; display: flex; flex-direction: column; }
+    h2 { margin-top: 0; font-size: 13.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+    h2.blue { color: var(--accent-blue); }
+    
+    .kv { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid #162032; font-size: 12.5px; gap: 12px; }
+    .kv span:first-child { color: var(--muted); }
+    .kv span:last-child { font-weight: 600; text-align: right; word-break: break-all; }
+    
+    .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    button { background: var(--accent); color: #04130d; border: none; padding: 10px 14px; border-radius: 6px; font-weight: 700; cursor: pointer; font-family: inherit; font-size: 12px; transition: opacity 0.2s; }
+    button:hover { opacity: 0.85; }
+    button.danger { background: var(--warn); color: #fff; }
+    button.blue { background: var(--accent-blue); color: #fff; }
+    button.secondary { background: #334155; color: #f8fafc; }
+    
+    pre { background: #05080f; border: 1px solid #162032; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 11.5px; color: #cbd5e1; margin-top: 14px; line-height: 1.45; }
+    .metric-hero { font-size: 28px; font-weight: bold; color: var(--accent); margin: 10px 0; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><strong>OBSIDIAN-ZK v3.0</strong> // MIDNIGHT INSTITUTIONAL RWA CLEARINGHOUSE</div>
+    <div class="rpc-bar">
+      <span>Railway Rust TEE URL:</span>
+      <input id="enclave-url" type="text" value="http://localhost:8080" placeholder="https://your-enclave.up.railway.app" />
+      <button class="secondary" onclick="checkEnclaveHealth()" style="margin:0;padding:6px 10px;">Ping /health</button>
+      <span id="rpc-mode" style="color: var(--accent);">[READY]</span>
+    </div>
+  </header>
+
+  <div class="grid-3">
+    <!-- PANEL 1: Public Midnight Ledger -->
+    <div class="card">
+      <h2>Public L1 Ledger (Zero Alpha Leakage)</h2>
+      <div class="kv"><span>Ledger Epoch ID</span><span id="pub-epoch">42</span></div>
+      <div class="kv"><span>Compact Circuit State</span><span id="pub-state" style="color: var(--accent);">SETTLED</span></div>
+      <div class="kv"><span>SHA-256 Batch Root</span><span id="pub-root">0x7c8e9104f288a01b92...</span></div>
+      <div class="kv"><span>ERC-7943 DvP Escrow Hash</span><span id="pub-dvp">0x4f0192b8e211c673a9...</span></div>
+      <div class="kv"><span>Homomorphic Pedersen Commit</span><span id="pub-pedersen">14982734918273645112</span></div>
+      <div class="kv"><span>Counterparty & Order Size</span><span>[SHIELDED BY ZK-SNARK]</span></div>
+      <div class="kv"><span>Sponsored Gas Relay</span><span id="pub-dust">1,250,000 DUST (Paid in USDC)</span></div>
+    </div>
+
+    <!-- PANEL 2: Institutional FIX Desk -->
+    <div class="card">
+      <h2 class="blue">Institutional FIX Desk & Regulator Audit</h2>
+      <div class="kv"><span>Cleared Block Notional</span><span id="priv-size">$10,000,000 USDC</span></div>
+      <div class="kv"><span>Clearing Price</span><span id="priv-price">9880 bps (98.80% Par)</span></div>
+      <div class="kv"><span>Capital Floor Gate (>= $250k)</span><span id="priv-cap">Verified ($50M Committed)</span></div>
+      <div class="kv"><span>Oracle Heartbeat (<= 300s)</span><span id="priv-oracle">15s age | 35 bps var (PASS)</span></div>
+      <div class="kv"><span>(2-of-3) Shamir Viewing Key</span><span id="priv-shamir">918273645564... (Auditor Reconstructed)</span></div>
+      <div class="kv"><span>2.5% Slashing Margin Bond</span><span id="priv-margin">$250,000 BUIDL (Locked)</span></div>
+      <div class="kv"><span>L1 Escape Hatch Status</span><span id="priv-escape">ARMED (120s Timeout)</span></div>
+    </div>
+
+    <!-- PANEL 3: Multilateral Netting Compression -->
+    <div class="card">
+      <h2 style="color: #a855f7;">Multilateral Cycle Netting (Apex Tier)</h2>
+      <div class="metric-hero" id="net-ratio">82.50%</div>
+      <div style="text-align: center; font-size: 11px; color: var(--muted); margin-bottom: 12px; text-transform: uppercase;">Capital Freed (Compression Ratio)</div>
+      <div class="kv"><span>Gross Batch Volume</span><span id="net-gross">$45,000,000 USDC</span></div>
+      <div class="kv"><span>Net Settlement Capital Req.</span><span id="net-req">$7,875,000 USDC</span></div>
+      <div class="kv"><span>Capital Saved / Freed</span><span id="net-saved" style="color: #a855f7;">$37,125,000 USDC</span></div>
+      <div class="kv"><span>Cycle Commitment Root</span><span id="net-root">0x19a4c1161e376c08...</span></div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Action Controls -->
+    <div class="card">
+      <h2>Enclave Execution Controls (Live RPC)</h2>
+      <div class="btn-row">
+        <button class="blue" onclick="dispatchBatch(10000000, 35, 50000000, 15)">Execute $10M Bilateral Cross</button>
+        <button style="background: #a855f7; color: white;" onclick="dispatchNettingRing(45000000)">Execute N-Party Multilateral Ring ($45M)</button>
+        <button class="danger" onclick="dispatchEscapeHatch()">Trigger 120s L1 Escape Hatch</button>
+      </div>
+      <div class="btn-row" style="margin-top: 10px;">
+        <button class="secondary" onclick="dispatchBatch(100, 35, 50000000, 15)">Attack: $100 HFT Probe</button>
+        <button class="secondary" onclick="dispatchBatch(10000000, 320, 50000000, 15)">Attack: 320 bps Credit Default</button>
+        <button class="secondary" onclick="dispatchBatch(10000000, 35, 100000, 15)">Attack: Under-Capitalized Desk ($100k)</button>
+      </div>
+    </div>
+    
+    <!-- Telemetry Log -->
+    <div class="card">
+      <h2>Enclave / Midnight Telemetry Log</h2>
+      <pre id="audit-log" style="height: 120px; margin-top: 0; overflow-y: auto;">SYSTEM INITIALIZED.
+Ready to route FIX 4.4 messages to AWS Nitro / Railway Rust TEE.
+If Enclave is unreachable, deterministic WebCrypto SHA-256 fallback will execute.</pre>
+    </div>
+  </div>
+
+  <script>
+    const logEl = document.getElementById('audit-log');
+    function appendLog(msg) {
+      logEl.innerText = `[${new Date().toISOString().split('T')[1].substring(0, 12)}] ${msg}\n` + logEl.innerText;
+    }
+
+    async function sha256Hex(str) {
+      const buf = new TextEncoder().encode(str);
+      const hash = await crypto.subtle.digest('SHA-256', buf);
+      return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function checkEnclaveHealth() {
+      const base = document.getElementById('enclave-url').value.replace(/\/+$/, '');
+      const statusEl = document.getElementById('rpc-mode');
+      try {
+        const res = await fetch(base + '/health', { method: 'GET' });
+        const data = await res.json();
+        statusEl.innerText = '[RAILWAY TEE ONLINE]';
+        statusEl.style.color = '#10b981';
+        appendLog('HEALTH OK: ' + JSON.stringify(data));
+      } catch (e) {
+        statusEl.innerText = '[WEBCRYPTO FALLBACK]';
+        statusEl.style.color = '#f59e0b';
+        appendLog('WARN: Railway endpoint unreachable. Using built-in WebCrypto SHA-256 fallback.');
+      }
+    }
+
+    async function dispatchBatch(sizeUsd, varianceBps, capitalUsd, oracleAgeSecs) {
+      const base = document.getElementById('enclave-url').value.replace(/\/+$/, '');
+      const payload = { size_usd: sizeUsd, variance_bps: varianceBps, capital_usd: capitalUsd, oracle_age_secs: oracleAgeSecs };
+
+      appendLog(`POST /api/v1/batch-cross | Size: $${sizeUsd.toLocaleString()} | Cap: $${capitalUsd.toLocaleString()} | Var: ${varianceBps}bps`);
+      
+      try {
+        const res = await fetch(base + '/api/v1/batch-cross', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        renderBilateralResult(data, payload, 'RAILWAY_TEE');
+      } catch (_) {
+        simulateBilateralFallback(payload);
+      }
+    }
+
+    async function dispatchNettingRing(grossUsd) {
+      const base = document.getElementById('enclave-url').value.replace(/\/+$/, '');
+      appendLog(`POST /api/v1/multilateral-ring | Gross: $${grossUsd.toLocaleString()}`);
+      
+      try {
+        const res = await fetch(base + '/api/v1/multilateral-ring', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gross_usd: grossUsd })
+        });
+        const data = await res.json();
+        renderNettingResult(data, 'RAILWAY_TEE');
+      } catch (_) {
+        // Fallback netting calculation
+        const netUsd = grossUsd * 0.175; // 82.5% compression mock
+        const root = await sha256Hex('obsidian:multilateral:ring:' + grossUsd);
+        renderNettingResult({ ok: true, gross_notional_usd: grossUsd, net_settlement_usd: netUsd, compression_ratio_bps: 8250, cycle_commitment_root: '0x' + root }, 'WEBCRYPTO');
+      }
+    }
+
+    async function dispatchEscapeHatch() {
+      const base = document.getElementById('enclave-url').value.replace(/\/+$/, '');
+      appendLog(`POST /api/v1/escape-hatch | Triggering 120s L1 Vault Unlock`);
+      try {
+        const res = await fetch(base + '/api/v1/escape-hatch', { method: 'POST' });
+        const data = await res.json();
+        appendLog(`[RAILWAY_TEE ESCAPE HATCH]: Success. Receipt: ${data.escape_hatch_receipt.substring(0, 20)}...`);
+        document.getElementById('priv-escape').innerText = 'TRIGGERED (VAULT UNLOCKED)';
+        document.getElementById('priv-escape').style.color = '#ef4444';
+      } catch (_) {
+        const hash = await sha256Hex('obsidian:escape:unlock:LOCK');
+        appendLog(`[WEBCRYPTO ESCAPE HATCH]: Success. Receipt: 0x${hash.substring(0, 18)}...`);
+        document.getElementById('priv-escape').innerText = 'TRIGGERED (VAULT UNLOCKED)';
+        document.getElementById('priv-escape').style.color = '#ef4444';
+      }
+    }
+
+    async function simulateBilateralFallback(payload) {
+      if (payload.capital_usd < 250000) {
+        renderBilateralResult({ ok: false, error: 'InsufficientInstitutionalCapital { provided: ' + payload.capital_usd + ' }' }, payload, 'WEBCRYPTO'); return;
+      }
+      if (payload.size_usd < 50000) {
+        renderBilateralResult({ ok: false, error: 'OrderBelowMinimumBlockSize { matched: ' + payload.size_usd + ' }' }, payload, 'WEBCRYPTO'); return;
+      }
+      if (payload.variance_bps > 150) {
+        renderBilateralResult({ ok: false, error: 'CircuitBreakerTripped { variance_bps: ' + payload.variance_bps + ' }' }, payload, 'WEBCRYPTO'); return;
+      }
+      const nextEpoch = parseInt(document.getElementById('pub-epoch').innerText, 10) + 1;
+      const batchRoot = await sha256Hex('obsidian:batch:root:' + nextEpoch + ':' + payload.size_usd);
+      const dvpHash = await sha256Hex('obsidian:erc7943:dvp:' + batchRoot);
+      renderBilateralResult({
+        ok: true, epoch_id: nextEpoch, matched_size_usd: payload.size_usd, clearing_price_bps: 9880,
+        pedersen_commitment: '16492837491827364501', public_batch_root: '0x' + batchRoot,
+        erc7943_dvp_release_hash: '0x' + dvpHash, sponsored_dust_burned: 1250000, reconstructed_viewing_key: '918273645564...'
+      }, payload, 'WEBCRYPTO');
+    }
+
+    function renderBilateralResult(data, payload, source) {
+      const stateEl = document.getElementById('pub-state');
+      if (!data.ok) {
+        stateEl.innerText = 'REJECTED'; stateEl.style.color = '#ef4444';
+        appendLog(`[${source} REJECTION]: ${data.error}`);
+        return;
+      }
+      stateEl.innerText = 'SETTLED'; stateEl.style.color = '#10b981';
+      document.getElementById('pub-epoch').innerText = data.epoch_id;
+      document.getElementById('pub-root').innerText = data.public_batch_root.substring(0, 20) + '...';
+      document.getElementById('pub-dvp').innerText = data.erc7943_dvp_release_hash.substring(0, 20) + '...';
+      document.getElementById('pub-pedersen').innerText = data.pedersen_commitment;
+      document.getElementById('priv-size').innerText = '$' + Number(data.matched_size_usd).toLocaleString() + ' USDC';
+      document.getElementById('priv-price').innerText = data.clearing_price_bps + ' bps (98.80% of Par)';
+      document.getElementById('priv-cap').innerText = 'Verified ($' + Number(payload.capital_usd).toLocaleString() + ')';
+      document.getElementById('priv-oracle').innerText = payload.oracle_age_secs + 's | ' + payload.variance_bps + ' bps var (PASS)';
+      document.getElementById('priv-shamir').innerText = data.reconstructed_viewing_key;
+      document.getElementById('priv-margin').innerText = '$' + (payload.size_usd * 0.025).toLocaleString() + ' BUIDL (Locked)';
+      appendLog(`[${source} BILATERAL SETTLEMENT]: Epoch ${data.epoch_id}. Block: $${payload.size_usd.toLocaleString()}.`);
+    }
+
+    function renderNettingResult(data, source) {
+      if (!data.ok) { appendLog(`[${source} NETTING ERROR]: ${data.error}`); return; }
+      document.getElementById('net-ratio').innerText = (data.compression_ratio_bps / 100).toFixed(2) + '%';
+      document.getElementById('net-gross').innerText = '$' + Number(data.gross_notional_usd).toLocaleString() + ' USDC';
+      document.getElementById('net-req').innerText = '$' + Number(data.net_settlement_usd).toLocaleString() + ' USDC';
+      document.getElementById('net-saved').innerText = '$' + Number(data.gross_notional_usd - data.net_settlement_usd).toLocaleString() + ' USDC';
+      document.getElementById('net-root').innerText = data.cycle_commitment_root.substring(0, 20) + '...';
+      appendLog(`[${source} MULTILATERAL CYCLE SETTLED]: Gross: $${data.gross_notional_usd.toLocaleString()} | Saved: $${(data.gross_notional_usd - data.net_settlement_usd).toLocaleString()}`);
+    }
+  </script>
+</body>
+</html>

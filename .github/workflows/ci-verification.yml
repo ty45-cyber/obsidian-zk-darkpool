@@ -1,0 +1,102 @@
+# .github/workflows/ci-verification.yml
+name: ObsidianZK v3.0 Core CI Pipeline
+
+on:
+  push:
+    branches: [ "main", "staging" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rust-enclave-verification:
+    name: Rust TEE Enclave (FIX 4.4 / Netting / Cryptography)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./enclave-daemon
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain (v1.82)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.82.0
+          components: clippy, rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          work-dir: ./enclave-daemon
+
+      - name: Check Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy Linter
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Execute 10-Part Cryptographic & Adversarial Test Suite
+        # Executes FIPS-180-4 SHA-256 checks, Pedersen homomorphic math, 
+        # Shamir 2-of-3 Lagrange interpolation, and multilateral cycle compression.
+        run: cargo test --release -- --nocapture
+
+  midnight-witness-verification:
+    name: TypeScript Witness & SHA-256 Parity Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./contracts
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js v22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Typecheck TypeScript Witnesses
+        # Enforces strict type boundaries for Compact runtime ingestion
+        run: npx tsc --noEmit
+
+      - name: Execute Witness Hash Verification
+        run: npm run test:witness
+
+  cross-chain-vault-verification:
+    name: ERC-7943 Vaults & L1 Escape Hatch (Foundry)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./cross-chain-vaults/ethereum-erc7943
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: 'nightly'
+
+      - name: Build Escrow & Margin Bond Contracts
+        run: forge build --sizes
+
+  docker-orchestration:
+    name: Enclave & Midnight Proof Server Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build TEE Enclave Docker Image
+        # Verifies the multi-stage rust:1.82-slim to debian:bookworm-slim compilation
+        run: docker compose build obsidian-enclave-daemon
+
+      - name: Validate Compose Infrastructure
+        run: docker compose config

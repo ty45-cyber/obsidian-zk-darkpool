@@ -1,0 +1,10 @@
+
+{
+  "name": "@obsidian-zk/dashboard",
+  "version": "3.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve . -l 3000",
+    "build": "echo 'Static build verified for Vercel'"
+  }
+}

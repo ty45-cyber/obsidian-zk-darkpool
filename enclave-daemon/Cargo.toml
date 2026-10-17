@@ -1,0 +1,15 @@
+# enclave-daemon/Cargo.toml
+[package]
+name = "obsidian-enclave-daemon"
+version = "3.0.0"
+edition = "2021"
+authors = ["Branham Kola <BTech Solutions>"]
+description = "Production Institutional FIX 4.4 to Midnight Compact ZK-Dark Pool HTTP/RPC Enclave Daemon"
+
+[lib]
+name = "obsidian_enclave"
+path = "src/lib.rs"
+
+[[bin]]
+name = "obsidian-daemon"
+path = "src/main.rs"

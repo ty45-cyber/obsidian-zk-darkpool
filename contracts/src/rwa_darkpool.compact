@@ -1,0 +1,218 @@
+// contracts/src/rwa_darkpool.compact
+pragma language_version >= 0.22;
+
+import CompactStandardLibrary;
+
+export enum PoolState {
+  OPEN_COMMITMENT,
+  SETTLED,
+  CIRCUIT_BREAKER_TRIPPED
+}
+
+export struct OrderWitness {
+  trader_sk: Bytes<32>;
+  asset_id: Bytes<32>;
+  limit_price_bps: Uint<64>;
+  size_usd: Uint<64>;
+  committed_capital_usd: Uint<64>;
+  kyc_credential_secret: Bytes<32>;
+  blinding_factor: Bytes<32>;
+}
+
+export struct OracleWitness {
+  asset_id: Bytes<32>;
+  nav_price_bps: Uint<64>;
+  credit_variance_bps: Uint<64>;
+  timestamp_secs: Uint<64>;
+  oracle_signature_secret: Bytes<32>;
+}
+
+export sealed ledger min_capital_usd: Uint<64>;
+export sealed ledger min_block_size_usd: Uint<64>;
+export sealed ledger max_oracle_staleness_secs: Uint<64>;
+export sealed ledger max_credit_variance_bps: Uint<64>;
+export sealed ledger approved_kyc_registry_root: Bytes<32>;
+export sealed ledger approved_oracle_pubkey_hash: Bytes<32>;
+export sealed ledger approved_enclave_pcr0: Bytes<32>;
+export sealed ledger transfer_agent_viewing_pk: Bytes<32>;
+
+export ledger epoch_id: Counter;
+export ledger pool_state: PoolState;
+export ledger current_batch_root: Bytes<32>;
+export ledger cross_chain_dvp_commitment: Bytes<32>;
+export ledger selective_disclosure_receipt: Bytes<32>;
+export ledger settled_batch_count: Counter;
+
+// v3.0 Multilateral Capital Compression Metrics
+export ledger gross_volume_cleared_usd: Uint<64>;
+export ledger net_capital_transferred_usd: Uint<64>;
+
+constructor(
+  init_kyc_root: Bytes<32>,
+  init_oracle_pk_hash: Bytes<32>,
+  init_enclave_pcr0: Bytes<32>,
+  init_agent_viewing_pk: Bytes<32>
+) {
+  min_capital_usd = 250000;
+  min_block_size_usd = 50000;
+  max_oracle_staleness_secs = 300;
+  max_credit_variance_bps = 150;
+
+  approved_kyc_registry_root = disclose(init_kyc_root);
+  approved_oracle_pubkey_hash = disclose(init_oracle_pk_hash);
+  approved_enclave_pcr0 = disclose(init_enclave_pcr0);
+  transfer_agent_viewing_pk = disclose(init_agent_viewing_pk);
+
+  pool_state = PoolState.OPEN_COMMITMENT;
+  epoch_id.increment(1);
+
+  gross_volume_cleared_usd = 0;
+  net_capital_transferred_usd = 0;
+}
+
+witness get_maker_order(): OrderWitness;
+witness get_taker_order(): OrderWitness;
+witness get_oracle_attestation(): OracleWitness;
+witness get_enclave_pcr0_preimage(): Bytes<32>;
+witness get_erc7943_vault_lock_hash(): Bytes<32>;
+
+export pure circuit compute_domain_hash(domain: Bytes<32>, payload: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([domain, payload]);
+}
+
+export pure circuit compute_triple_hash(a: Bytes<32>, b: Bytes<32>, c: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([a, b, c]);
+}
+
+export circuit execute_zk_batch_auction(
+  batch_nonce: Bytes<32>,
+  current_block_time_secs: Uint<64>
+): [] {
+  assert(pool_state != PoolState.CIRCUIT_BREAKER_TRIPPED, "Dark pool halted by circuit breaker");
+
+  const pcr_preimage = get_enclave_pcr0_preimage();
+  const computed_pcr0 = compute_domain_hash(pad(32, "obsidian:tee:pcr0:"), pcr_preimage);
+  assert(disclose(computed_pcr0 == approved_enclave_pcr0), "Invalid AWS Nitro / Intel TDX Enclave PCR0");
+
+  const oracle = get_oracle_attestation();
+  const computed_oracle_pk = compute_domain_hash(pad(32, "obsidian:oracle:pk:"), oracle.oracle_signature_secret);
+  assert(disclose(computed_oracle_pk == approved_oracle_pubkey_hash), "Unauthenticated NAV oracle");
+  assert(disclose(current_block_time_secs >= oracle.timestamp_secs), "Invalid future oracle timestamp");
+  assert(
+    disclose((current_block_time_secs - oracle.timestamp_secs) <= max_oracle_staleness_secs),
+    "Stale RWA NAV oracle: batch aborted"
+  );
+
+  if (disclose(oracle.credit_variance_bps > max_credit_variance_bps)) {
+    pool_state = PoolState.CIRCUIT_BREAKER_TRIPPED;
+  } else {
+    const maker = get_maker_order();
+    const taker = get_taker_order();
+
+    assert(disclose(maker.asset_id == taker.asset_id), "Asset ID mismatch");
+    assert(disclose(maker.asset_id == oracle.asset_id), "Oracle asset mismatch");
+    assert(disclose(maker.trader_sk != taker.trader_sk), "Wash trading self-cross prohibited");
+
+    assert(disclose(maker.committed_capital_usd >= min_capital_usd), "Maker below $250k institutional capital floor");
+    assert(disclose(taker.committed_capital_usd >= min_capital_usd), "Taker below $250k institutional capital floor");
+
+    const matched_size_usd = maker.size_usd < taker.size_usd ? maker.size_usd : taker.size_usd;
+    assert(disclose(matched_size_usd >= min_block_size_usd), "Matched block below $50k minimum dark pool threshold");
+
+    const maker_kyc_leaf = compute_domain_hash(pad(32, "obsidian:kyc:v1:"), maker.kyc_credential_secret);
+    const taker_kyc_leaf = compute_domain_hash(pad(32, "obsidian:kyc:v1:"), taker.kyc_credential_secret);
+    const combined_kyc_root = compute_triple_hash(
+      pad(32, "obsidian:kyc:root:"),
+      maker_kyc_leaf,
+      taker_kyc_leaf
+    );
+    assert(disclose(combined_kyc_root == approved_kyc_registry_root), "Counterparty ZK-KYC proof verification failed");
+
+    assert(disclose(maker.limit_price_bps <= taker.limit_price_bps), "Orders do not cross in batch window");
+
+    const maker_commit = compute_triple_hash(maker.trader_sk, maker.blinding_factor, batch_nonce);
+    const taker_commit = compute_triple_hash(taker.trader_sk, taker.blinding_factor, batch_nonce);
+    const new_batch_root = compute_triple_hash(pad(32, "obsidian:batch:"), maker_commit, taker_commit);
+
+    const vault_lock_hash = get_erc7943_vault_lock_hash();
+    const dvp_settlement = compute_triple_hash(
+      pad(32, "obsidian:erc7943:dvp:"),
+      new_batch_root,
+      vault_lock_hash
+    );
+
+    const audit_receipt = compute_triple_hash(
+      transfer_agent_viewing_pk,
+      new_batch_root,
+      dvp_settlement
+    );
+
+    current_batch_root = disclose(new_batch_root);
+    cross_chain_dvp_commitment = disclose(dvp_settlement);
+    selective_disclosure_receipt = disclose(audit_receipt);
+    
+    gross_volume_cleared_usd = disclose((gross_volume_cleared_usd + matched_size_usd) as Uint<64>);
+    net_capital_transferred_usd = disclose((net_capital_transferred_usd + matched_size_usd) as Uint<64>);
+    
+    pool_state = PoolState.SETTLED;
+    settled_batch_count.increment(1);
+    epoch_id.increment(1);
+  }
+}
+
+export circuit execute_multilateral_netted_batch(
+  batch_nonce: Bytes<32>,
+  current_block_time_secs: Uint<64>,
+  gross_cycle_notional_usd: Uint<64>,
+  net_residual_settlement_usd: Uint<64>
+): [] {
+  assert(pool_state != PoolState.CIRCUIT_BREAKER_TRIPPED, "Dark pool halted by circuit breaker");
+
+  const pcr_preimage = get_enclave_pcr0_preimage();
+  const computed_pcr0 = compute_domain_hash(pad(32, "obsidian:tee:pcr0:"), pcr_preimage);
+  assert(disclose(computed_pcr0 == approved_enclave_pcr0), "Invalid AWS Nitro / Intel TDX Enclave PCR0");
+
+  assert(
+    disclose(net_residual_settlement_usd <= gross_cycle_notional_usd),
+    "Invalid multilateral netting compression"
+  );
+  assert(
+    disclose(gross_cycle_notional_usd >= min_block_size_usd),
+    "Multilateral ring below $50k institutional threshold"
+  );
+
+  const vault_lock_hash = get_erc7943_vault_lock_hash();
+  const dvp_settlement = compute_triple_hash(
+    pad(32, "obsidian:erc7943:multi:dvp:"),
+    batch_nonce,
+    vault_lock_hash
+  );
+
+  current_batch_root = disclose(batch_nonce);
+  cross_chain_dvp_commitment = disclose(dvp_settlement);
+  
+  gross_volume_cleared_usd = disclose((gross_volume_cleared_usd + gross_cycle_notional_usd) as Uint<64>);
+  net_capital_transferred_usd = disclose((net_capital_transferred_usd + net_residual_settlement_usd) as Uint<64>);
+  
+  pool_state = PoolState.SETTLED;
+  settled_batch_count.increment(1);
+  epoch_id.increment(1);
+}
+
+export circuit force_unilateral_exit(
+  order_lock_timestamp_secs: Uint<64>,
+  current_block_time_secs: Uint<64>,
+  trader_vault_commitment: Bytes<32>
+): Bytes<32> {
+  assert(
+    disclose((current_block_time_secs - order_lock_timestamp_secs) > 120),
+    "Batch window still active: cannot force exit before 120s timeout"
+  );
+  return compute_domain_hash(pad(32, "obsidian:escape:unlock:"), disclose(trader_vault_commitment));
+}
+
+export circuit reset_circuit_breaker(enclave_override_preimage: Bytes<32>): [] {
+  const computed_pcr0 = compute_domain_hash(pad(32, "obsidian:tee:pcr0:"), enclave_override_preimage);
+  assert(disclose(computed_pcr0 == approved_enclave_pcr0), "Unauthorized enclave reset");
+  pool_state = PoolState.OPEN_COMMITMENT;
+}
