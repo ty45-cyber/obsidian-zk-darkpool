@@ -136,11 +136,22 @@ function resolveConfig(): DeployConfig {
     };
   }
 
+  const blockfrostProjectId = process.env.BLOCKFROST_PROJECT_ID?.trim();
+  const preprodDefaultIndexer = blockfrostProjectId
+    ? `https://midnight-preprod.blockfrost.io/api/v0?project_id=${blockfrostProjectId}`
+    : 'https://indexer.preprod.midnight.network/api/v3/graphql';
+  const preprodDefaultIndexerWs = blockfrostProjectId
+    ? `wss://midnight-preprod.blockfrost.io/api/v0/ws?project_id=${blockfrostProjectId}`
+    : 'wss://indexer.preprod.midnight.network/api/v3/graphql/ws';
+  const preprodDefaultNode = blockfrostProjectId
+    ? `https://rpc.midnight-preprod.blockfrost.io?project_id=${blockfrostProjectId}`
+    : 'https://rpc.preprod.midnight.network';
+
   return {
     network: 'preprod',
-    indexer: process.env.MIDNIGHT_INDEXER_URL ?? 'https://indexer.preprod.midnight.network/api/v3/graphql',
-    indexerWS: process.env.MIDNIGHT_INDEXER_WS_URL ?? 'wss://indexer.preprod.midnight.network/api/v3/graphql/ws',
-    node: process.env.MIDNIGHT_NODE_URL ?? 'https://rpc.preprod.midnight.network',
+    indexer: process.env.MIDNIGHT_INDEXER_URL ?? preprodDefaultIndexer,
+    indexerWS: process.env.MIDNIGHT_INDEXER_WS_URL ?? preprodDefaultIndexerWs,
+    node: process.env.MIDNIGHT_NODE_URL ?? preprodDefaultNode,
     proofServer: process.env.MIDNIGHT_PROOF_SERVER_URL ?? 'http://127.0.0.1:6300',
   };
 }
